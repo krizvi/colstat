@@ -1,0 +1,11 @@
+*.a
+*.test
+*.out
+*.exe
+*.tar.gz
+*.zip
+*.sqlite
+*.log
+*.pid
+*.DS_Store
+
