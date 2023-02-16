@@ -7,6 +7,7 @@ import (
 	"github.com/krizvi/colstat/codebase/shared"
 	"io"
 	"os"
+	"runtime"
 	"sync"
 )
 
@@ -60,13 +61,22 @@ func run(filenames []string, op string, col int, delimiter rune, outfile io.Writ
 	resCh := make(chan []float64)
 	errCh := make(chan error)
 	doneCh := make(chan struct{})
+	filesCh := make(chan string)
+
+	// save file names in a channel as it will run in thread
+	go func() {
+		defer close(filesCh)
+		for _, filename := range filenames {
+			filesCh <- filename
+		}
+	}()
 
 	wg := sync.WaitGroup{}
 
 	// Loop through all files adding their data to consolidate
-	for _, fname := range filenames {
+	for i := 0; i < runtime.NumCPU(); i++ {
 		wg.Add(1)
-		go processFile(&wg, fname, col, delimiter, resCh, errCh, doneCh)
+		go processFile(&wg, filesCh, col, delimiter, resCh, errCh, doneCh)
 	}
 
 	go func() {
@@ -88,28 +98,30 @@ func run(filenames []string, op string, col int, delimiter rune, outfile io.Writ
 	}
 }
 
-func processFile(wg *sync.WaitGroup, fname string, col int, delimiter rune, resch chan []float64, errCh chan error, doneCh chan struct{}) {
+func processFile(wg *sync.WaitGroup, filesCh chan string, col int, delimiter rune, resch chan []float64, errCh chan error, doneCh chan struct{}) {
 	defer wg.Done()
 
 	// Open the file for reading
-	f, err := os.Open(fname)
-	if err != nil {
-		errCh <- fmt.Errorf("Cannot open file: %w", err)
-		return
-	}
+	for fname := range filesCh {
+		f, err := os.Open(fname)
+		if err != nil {
+			errCh <- fmt.Errorf("Cannot open file: %w", err)
+			return
+		}
 
-	//fmt.Println("Processsing:", fname)
-	// Parse the CSV into a slice of float64 numbers
-	data, err := engine.CSV2Float(f, col, delimiter)
-	if err != nil {
-		errCh <- err
-		return
-	}
+		//fmt.Println("Processsing:", fname)
+		// Parse the CSV into a slice of float64 numbers
+		data, err := engine.CSV2Float(f, col, delimiter)
+		if err != nil {
+			errCh <- err
+			return
+		}
 
-	if err := f.Close(); err != nil {
-		errCh <- err
-		return
-	}
+		if err := f.Close(); err != nil {
+			errCh <- err
+			return
+		}
 
-	resch <- data
+		resch <- data
+	}
 }
